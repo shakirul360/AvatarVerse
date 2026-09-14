@@ -36,8 +36,11 @@ os.makedirs(OUT_DIR, exist_ok=True)
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 model = smplx.create(SMPLX_MODEL_DIR, model_type='smplx', gender='neutral', use_pca=False, batch_size=1).to(device)
 
-# Pilot scope, as agreed: 3 subjects x 3 clips x 8 distortion types x 3 severities
-SUBJECTS = ['0000', '0100', '0500']
+# Phase 3 scope, as agreed: 6 subjects x 5 clips x (9 distortion types x 3 severities single
+# + 6 mixed pairs x 2 severity presets). Subjects chosen for height/clothing-color diversity
+# (0450/0150/0250: 1.85m white, 1.74m colorful-patterned, 1.68m black+yellow, vs. the original
+# 0000/0100/0500's black/black/maroon) - see the 2026-09 subject/motion selection notes.
+SUBJECTS = ['0000', '0100', '0500', '0450', '0150', '0250']
 CLIPS = {
     # QkWalk1 (originally here) turned out to be a poor fit for a fixed-camera stimulus: its
     # global_orient cycles by up to 0.4 rad every ~50 frames (a genuine repeated turn in the
@@ -48,6 +51,16 @@ CLIPS = {
     'walk': 'ACCAD/Female1Walking_c3d/B3_-_walk1_stageii.npz',
     'front_kick': 'ACCAD/Male2MartialArtsKicks_c3d/G3_-_front_kick_stageii.npz',
     'bmlmovi_walk': 'BMLmovi/Subject_1_F_MoSh/Subject_1_F_19_stageii.npz',
+    # 'run': vetted directly (not just via global_orient stats, which read alarmingly high -
+    # 0.288 std, close to QkWalk1's bad 0.15 - but turned out to be a real, smooth curve along
+    # the capture path, confirmed by actually rendering it; width ratio 2.02x is real arm/leg
+    # swing from running, same category of "real dynamic content" as front_kick's accepted
+    # width growth, not instability.
+    'run': 'ACCAD/Male2Running_c3d/C3_-_run_stageii.npz',
+    # 'pickup_box': cleanest of all candidates tested (width ratio 1.12x, close to walk's own
+    # 1.44x) - bending to pick up a box, a genuinely different movement quality/body dynamic
+    # from any other clip in the set without any stability concern.
+    'pickup_box': 'ACCAD/Male1General_c3d/General_A5_-_Pick_Up_Box_stageii.npz',
 }
 # v3: short unique content, looped, instead of v2's long single pass. v2 sampled ~2.5s of real
 # motion (150 frames) - multiple full gait cycles - which is exactly what made natural width
