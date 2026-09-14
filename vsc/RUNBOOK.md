@@ -173,19 +173,17 @@ sbatch vsc/smoke_test.slurm
 ```
 Then from the laptop: `rsync -av vsc:'$VSC_SCRATCH/avatarverse/out/_smoke/*.mp4' .` and eyeball it.
 
-### 5. Phase 2 (code done, needs validating on VSC hardware)
-`pipeline/distortions.py` + `pipeline/generate_dataset.py` exist and pass full per-frame
-validation locally (macOS) for one full (subject,clip) combo (40 files: 28 single + 12 mixed).
-Two real rendering bugs were found and fixed there (degenerate-triangle NaN normals from
-aggressive mesh_decimation; a SwiftShader texture-upload warmup race producing a leading run of
-blank frames) - both fixes are defensive/general (sanitize NaN normals regardless of cause,
-retry any blank frame regardless of cause), so they should hold on VSC's Linux SwiftShader too,
-but the warmup race in particular is timing-dependent and hasn't been proven there yet. Before
-the real 30-combo run: `pip install pymeshlab` into the venv (not yet installed on VSC - only
-`rtree` was needed for Phase 1), then rerun the same one-combo validation
-(`python -m pipeline.generate_dataset --subjects 0000 --clips walk --out <scratch dir>`) via
-`sbatch`, and re-check every frame of every file the same way the local validation did before
-trusting a full run.
+### 5. Phase 2 - DONE, validated on both macOS and VSC
+`pipeline/distortions.py` + `pipeline/generate_dataset.py` pass full per-frame validation (every
+frame of every file, not spot-checks) for one full (subject,clip) combo (40 files: 28 single +
+12 mixed) on both macOS (locally) and VSC (`vsc/phase2_smoke_test.slurm`, job 62008646, 0/40
+problem files, 25m38s). `pymeshlab` was already present on VSC (pulled in by
+`pipeline/requirements.txt` during Phase 1's `setup_env.sh`, even though Phase 1 itself never
+used it). The two rendering bugs found locally (degenerate-triangle NaN normals from aggressive
+mesh_decimation; a SwiftShader texture-upload warmup race producing a leading run of blank
+frames) do NOT recur on VSC's Linux SwiftShader - confirms both fixes were made at the right
+level (defensive/general: sanitize NaN normals and retry blank frames regardless of cause)
+rather than papering over something macOS-specific.
 
 ### 6. Phase 3
 `vsc/render_array.slurm` (not yet written) + `bash vsc/fetch_outputs.sh` (update its
