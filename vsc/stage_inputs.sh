@@ -9,11 +9,15 @@ VSC=${VSC_HOST:-vsc}
 # `srun --pty bash -c`; see RUNBOOK.md). vsc39181's $VSC_DATA is /data/leuven/391/vsc39181.
 DEST=${AVATARVERSE_DATA_REMOTE:-/data/leuven/391/vsc39181/projects/avatarverse-data}
 
-SUBJECTS=(0000 0100 0500)
+# Phase 3 scope: 6 subjects, 5 clips (see pipeline/generate_mos_pilot_dataset.py's SUBJECTS/
+# CLIPS for the selection rationale). Idempotent to rerun - rsync skips files already present.
+SUBJECTS=(0000 0100 0500 0450 0150 0250)
 AMASS_CLIPS=(
   "ACCAD/Female1Walking_c3d/B3_-_walk1_stageii.npz"
   "ACCAD/Male2MartialArtsKicks_c3d/G3_-_front_kick_stageii.npz"
   "BMLmovi/Subject_1_F_MoSh/Subject_1_F_19_stageii.npz"
+  "ACCAD/Male2Running_c3d/C3_-_run_stageii.npz"
+  "ACCAD/Male1General_c3d/General_A5_-_Pick_Up_Box_stageii.npz"
 )
 
 remote() { ssh "$VSC" "$1"; }
