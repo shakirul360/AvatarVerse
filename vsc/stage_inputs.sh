@@ -4,7 +4,10 @@
 set -euo pipefail
 
 VSC=${VSC_HOST:-vsc}
-DEST=${AVATARVERSE_DATA_REMOTE:-'$VSC_DATA/projects/avatarverse-data'}   # expanded on the remote
+# Concrete path, NOT $VSC_DATA - a non-interactive `ssh host "cmd"` doesn't reliably source the
+# profile scripts that set $VSC_DATA (same class of bug the 2026-09-14 session hit with
+# `srun --pty bash -c`; see RUNBOOK.md). vsc39181's $VSC_DATA is /data/leuven/391/vsc39181.
+DEST=${AVATARVERSE_DATA_REMOTE:-/data/leuven/391/vsc39181/projects/avatarverse-data}
 
 SUBJECTS=(0000 0100 0500)
 AMASS_CLIPS=(
