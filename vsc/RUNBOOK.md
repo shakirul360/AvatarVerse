@@ -148,8 +148,18 @@ cd AvatarVerse
 
 ### 2. Build the env (login node — has internet)
 ```
-bash vsc/setup_env.sh
+bash -l vsc/setup_env.sh
 ```
+**Must be `bash -l`, not plain `bash`.** `$VSC_DATA`/`$VSC_SCRATCH` and Lmod's `cluster/wice/*`
+context (itself a module you must load before `Python/3.13.5-GCCcore-14.3.0` becomes visible -
+`module --quiet purge` wipes it) both come from a profile.d chain that only runs for an actual
+login shell - naming `bash` explicitly on the command line bypasses the script's own
+`#!/bin/bash -l` shebang, so `bash vsc/setup_env.sh` silently loses all of it (found the hard
+way: `bash vsc/setup_env.sh` had apparently "worked" for Phase 1 only because that session's
+login node happened to already have the right modules loaded by chance, not because the
+invocation was actually correct). Same rule for ANY ad-hoc one-off command on a login node
+that needs `$VSC_DATA`/`module` - wrap it in `bash -l -c '...'`. `sbatch` scripts are unaffected
+(Slurm execs them directly, honoring the shebang).
 
 ### 3. Stage inputs (laptop)
 ```
@@ -163,9 +173,38 @@ sbatch vsc/smoke_test.slurm
 ```
 Then from the laptop: `rsync -av vsc:'$VSC_SCRATCH/avatarverse/out/_smoke/*.mp4' .` and eyeball it.
 
-### 5. Phases 2–3
-Build `pipeline/generate_dataset.py` + `vsc/render_array.slurm`, then
-`bash vsc/fetch_outputs.sh` and rerun `pipeline/generate_trial_pairs.py`.
+### 5. Phase 2 (code done, needs validating on VSC hardware)
+`pipeline/distortions.py` + `pipeline/generate_dataset.py` exist and pass full per-frame
+validation locally (macOS) for one full (subject,clip) combo (40 files: 28 single + 12 mixed).
+Two real rendering bugs were found and fixed there (degenerate-triangle NaN normals from
+aggressive mesh_decimation; a SwiftShader texture-upload warmup race producing a leading run of
+blank frames) - both fixes are defensive/general (sanitize NaN normals regardless of cause,
+retry any blank frame regardless of cause), so they should hold on VSC's Linux SwiftShader too,
+but the warmup race in particular is timing-dependent and hasn't been proven there yet. Before
+the real 30-combo run: `pip install pymeshlab` into the venv (not yet installed on VSC - only
+`rtree` was needed for Phase 1), then rerun the same one-combo validation
+(`python -m pipeline.generate_dataset --subjects 0000 --clips walk --out <scratch dir>`) via
+`sbatch`, and re-check every frame of every file the same way the local validation did before
+trusting a full run.
+
+### 6. Phase 3
+`vsc/render_array.slurm` (not yet written) + `bash vsc/fetch_outputs.sh` (update its
+`AVATARVERSE_OUT_REMOTE` for the `single`/`mixed` split), then rerun
+`pipeline/generate_trial_pairs.py` (needs updating for the 9-type + 6-mixed-pair catalog and
+the two-folder layout - still has the old 8-type/single-folder assumptions).
+
+## Getting code updates onto VSC
+
+VSC has no GitHub credentials configured (the initial `git clone` is a public, read-only HTTPS
+clone - fine; `git fetch`/`git pull`/`git push` against `github.com` all fail with
+`could not read Username`). Updates flow laptop -> VSC directly over SSH instead, bypassing
+GitHub: from the laptop, `git push vsc:$VSC_DATA/projects/AvatarVerse main` (needs
+`receive.denyCurrentBranch=updateInstead` set once on the VSC-side repo, already done - it
+updates VSC's working tree files too, not just the git history, so no separate `git reset --hard`
+needed after). If a fresh VSC-side session makes local commits there, pull them the same way in
+reverse: from the laptop, `git fetch vsc:$VSC_DATA/projects/AvatarVerse main` then
+`git merge --ff-only FETCH_HEAD`, then push to `origin` from the laptop (which does have
+credentials).
 
 ## Quota
 
