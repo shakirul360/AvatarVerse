@@ -40,11 +40,61 @@ texture quality is first-order for textured avatars).
 
 - [x] Skinning + textured render proven locally (`pipeline/skin_scan.py`, `pipeline/render.py`)
       — one clip, `sample_textured_0000_walk_0.75x.mp4`.
-- [ ] Phase 1: environment smoke test on wICE (`vsc/smoke_test.slurm`).
+- [x] Phase 1: environment smoke test on wICE (`vsc/smoke_test.slurm`) — job 62007832,
+      `0000_walk_0.75x.mp4` (1280×1280, 30fps, 138 frames), copied to
+      `avatarverse-data/smoke_output/` for laptop-side viewing. See below.
 - [ ] Phase 2: port the 9 distortions to the textured path in a new
       `pipeline/generate_dataset.py` (reuse pose-space distortion fns from
       `generate_mos_pilot_dataset.py`).
 - [ ] Phase 3: Slurm array over all subject×clip×distortion×severity + `fetch_outputs.sh`.
+
+### 2026-09-14 session notes
+
+- The venv at `$VSC_DATA/venvs/avatar` (created 2026-07-29) was stale/broken: bound to the
+  **icelake** Python build but only `pip` itself was ever installed — `setup_env.sh` had never
+  actually completed. Deleted and rebuilt from scratch on a **skylake** login node
+  (`tier2-p-login-2`); this now works on both skylake login nodes and the icelake `batch`
+  partition nodes (icelake is a superset of skylake's instruction set — build on the older/lower
+  arch, never the newer one, if you land on a different login node next time).
+- **Login-node vs. compute-node CPU arch mismatch is real and will bite you again**: the login
+  pool (`login.hpc.kuleuven.be` → currently `login-genius`, internal hostname
+  `tier2-p-login-2`) is Skylake (Xeon Gold 6140). The default `batch`/`interactive` partitions on
+  wICE are **icelake**. A venv (or anything with compiled/arch-tuned binaries) built while
+  `srun`'d onto an icelake compute node will `Illegal instruction` crash if later run directly on
+  a skylake login node, and vice versa isn't a problem. Always build the venv on whatever login
+  node you're currently on — don't build it inside an interactive compute-node session.
+- Playwright's bundled Chromium ("BEWARE: your OS is not officially supported... downloading
+  fallback build for ubuntu24.04-x64") **will crash with `SIGTRAP`/`int3` if launched directly on
+  the login node** — its PartitionAlloc tries to reserve ~48 GB of address space (mostly just
+  reservation, not RSS) and the login node hard-caps `ulimit -v` to ~47.6 GB (soft==hard, not
+  raisable). This is **not a real problem for the actual pipeline** — confirmed `ulimit -v` is
+  `unlimited` on the `interactive`/`batch` compute nodes where rendering actually runs. Don't run
+  `pipeline.render` (or any playwright smoke test) directly on a login node; only via
+  `srun`/`sbatch`.
+- **If driving `srun --pty` from a session with no real TTY** (e.g. this Claude Code session):
+  SLURM prints `Not using a pseudo-terminal, disregarding --pty option` and falls back to a
+  plain non-interactive shell, which on this site does **not** source the profile.d scripts that
+  set `$VSC_DATA`/`$VSC_SCRATCH`/`MODULEPATH`. Fix: use `srun ... --pty bash -l -c '...'` (force
+  a login shell) instead of bare `--pty bash -c '...'`. `sbatch` scripts are unaffected — they
+  already use the `#!/bin/bash -l` shebang.
+- Data staged (241 MB via `vsc/stage_inputs.sh` from the laptop): all 3 THuman subjects
+  (scan+texture+SMPL-X fit), all 3 AMASS clips, the SMPL-X model.
+- Two dependency bugs found by actually running the job (not caught by the local proof-of-concept
+  since that ran with an already-complete laptop env):
+  - `skin_scan.py` imports `generate_mos_pilot_dataset.py` for its `THUMAN_ROOT`/`AMASS_ROOT`/
+    `SMPLX_MODEL_DIR`/`CLIPS` constants, but that module had a top-level `import plotly` — a
+    dependency the "Plotly is retired" note above says is gone. Fixed: made the plotly imports
+    lazy (moved inside the two legacy plotly-rendering functions, which the textured path never
+    calls) instead of reinstalling a retired dependency.
+  - `trimesh`'s `nearest.on_surface()` (used by the surface-wrap skinning) needs `rtree` for its
+    spatial index; it's an optional trimesh extra that wasn't in `pipeline/requirements.txt`.
+    Added `rtree>=1.2` there and installed it into the venv.
+- Phase 1 passed end-to-end on job 62007832 (icelake `batch` node `s28c11n3`): skin 302,021 verts
+  / 46 unique frames in ~18s, render 46 captured frames in 25s → looped 138-frame
+  1280×1280@30fps `.mp4`. Output copied to `avatarverse-data/smoke_output/0000_walk_0.75x.mp4`
+  (inside the `$VSC_DATA`-mounted tree, so it's visible from the laptop side without `rsync`).
+  Minor cosmetic-only ffmpeg warning ("Multiple -pix_fmt options specified") in `render.py` —
+  didn't affect output, not yet investigated.
 
 ## VSC facts
 

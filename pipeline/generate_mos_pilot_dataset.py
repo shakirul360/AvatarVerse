@@ -13,12 +13,8 @@ import numpy as np
 import torch
 import smplx
 import trimesh
-import plotly.graph_objects as go
-import plotly.io as pio
 import imageio.v2 as imageio
 from PIL import Image
-
-pio.renderers.default = None
 
 # Paths: env-overridable so the same code runs on the laptop and on VSC. Defaults are the
 # laptop layout. On VSC set AVATARVERSE_MODELS / AVATARVERSE_THUMAN / AVATARVERSE_AMASS /
@@ -182,6 +178,7 @@ CAMERA_EYE = dict(x=1.8 * 0.6, y=-1.8 * 0.6, z=1.2 * 0.6)
 
 
 def make_mesh_trace(mesh, color='royalblue', opacity=1.0):
+    import plotly.graph_objects as go
     mesh = orient_mesh(mesh)
     return go.Mesh3d(x=mesh.vertices[:, 0], y=mesh.vertices[:, 1], z=mesh.vertices[:, 2],
                       i=mesh.faces[:, 0], j=mesh.faces[:, 1], k=mesh.faces[:, 2],
@@ -199,6 +196,9 @@ def make_mesh_trace(mesh, color='royalblue', opacity=1.0):
 
 
 def render_mesh_rgb(mesh, width=1280, height=1280):
+    import plotly.graph_objects as go
+    import plotly.io as pio
+    pio.renderers.default = None
     fig = go.Figure(data=[make_mesh_trace(mesh)])
     fig.update_layout(width=width, height=height, margin=dict(l=0, r=0, t=0, b=0),
                        paper_bgcolor='black',
@@ -213,6 +213,8 @@ def _render_chunk_rgb(meshes, panel_size, axis_ranges):
     each call's image at a sane, fast-to-render width instead of one extreme-aspect-ratio image.
     axis_ranges: one range dict per mesh (in practice always UNIVERSAL_RANGE for every frame -
     the per-mesh list is kept so callers can still pass something else if they need to)."""
+    import plotly.io as pio
+    pio.renderers.default = None
     from plotly.subplots import make_subplots
     n = len(meshes)
     fig = make_subplots(rows=1, cols=n, specs=[[{'type': 'scene'}] * n], horizontal_spacing=0)
