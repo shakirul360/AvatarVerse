@@ -48,8 +48,11 @@ texture quality is first-order for textured avatars).
 
 ## VSC facts
 
-- ID `vsc39181`, account `intro_vsc39181`, cluster **wICE**. Login `login.vscentrum.be`
-  (lands on `tier2-p-login-*`).
+- ID `vsc39181`, account `intro_vsc39181`, cluster **wICE**. Login `login.hpc.kuleuven.be`
+  (`login.vscentrum.be` doesn't resolve - stale/wrong hostname, don't use it) - lands on
+  `tier2-p-login-*`, a shared KU Leuven Tier-2 login pool; pick the cluster per-job via `-M`.
+- IP-whitelist firewall (`firewall.vscentrum.be`) gates the login node - if `ssh` hangs or is
+  refused, re-whitelist your current public IP there first (it prompts with a URL on connect).
 - Verified working: `srun -M wice -A intro_vsc39181 -p interactive --cpus-per-task=4 --time=01:00:00 --pty bash`
 - `$VSC_DATA` = `/data/leuven/391/vsc39181`, venv at `$VSC_DATA/venvs/avatar`.
 - Module: `Python/3.13.5-GCCcore-14.3.0`. **Lmod is not initialised in `srun --pty` shells** —
@@ -72,15 +75,17 @@ falling back to the laptop layout.
 
 ## Steps
 
-### 0. Remote-SSH (laptop, once)
+### 0. Remote-SSH (laptop, once) — already done, kept here for reference
 `~/.ssh/config`:
 ```
 Host vsc
-    HostName login.vscentrum.be
+    HostName login.hpc.kuleuven.be
     User vsc39181
-    IdentityFile ~/.ssh/<your-vsc-key>
+    IdentityFile ~/.ssh/id_rsa_vsc
     ServerAliveInterval 60
 ```
+Test with `ssh vsc` before trying VS Code — if it hangs/refuses, whitelist your current IP at
+`firewall.vscentrum.be` first (your IP changes when you switch networks, e.g. hotspot <-> wifi).
 VS Code → Remote-SSH: Connect to Host → `vsc`. If your public IP changed, first whitelist it at
 https://firewall.vscentrum.be .
 
