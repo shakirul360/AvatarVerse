@@ -58,18 +58,47 @@ async function init(){{
   geom.setAttribute('uv',new THREE.BufferAttribute(uv,2));
   geom.setAttribute('position',new THREE.BufferAttribute(positions.slice(0,NV*3),3));
   geom.computeVertexNormals();
+  sanitizeNormals(geom);
   scene.add(new THREE.Mesh(geom,new THREE.MeshStandardMaterial({{map:tex,roughness:0.85,metalness:0.0}})));
   window.__ready=true;
+}}
+// A zero-area triangle (degenerate mesh_decimation collapse, occasionally a wildly-quantized
+// pose driving two vertices to the same spot) makes computeVertexNormals() divide by a
+// near-zero length, producing NaN/Infinity normals - which SwiftShader (software WebGL) doesn't
+// contain to the offending triangle, it corrupts the ENTIRE frame to solid white. Rare and hard
+// to fully predict in advance (found via a param_quantization+mesh_decimation combination whose
+// specific pose moved different triangles degenerate than the reference frame decimation was
+// filtered against), so guard the renderer itself rather than chase every producing case:
+// zero out any non-finite normal component after every computeVertexNormals() call. A zeroed
+// normal just makes that one vertex unlit, not a corrupted frame.
+function sanitizeNormals(g){{
+  const n=g.getAttribute('normal').array;
+  for(let i=0;i<n.length;i++) if(!isFinite(n[i])) n[i]=0;
 }}
 window.setFrame=function(i){{
   const o=i*NV*3;
   geom.getAttribute('position').array.set(positions.subarray(o,o+NV*3));
   geom.getAttribute('position').needsUpdate=true;
   geom.computeVertexNormals();
+  sanitizeNormals(geom);
   renderer.render(scene,camera);
 }};
 init();
 </script></body></html>"""
+
+
+def _is_blank(img, thresh=0.98):
+    """A near-solid-color frame - SwiftShader's texture upload is asynchronous and can lag the
+    JS-side 'ready' signal by several real seconds regardless of frame count (found empirically:
+    a clean PREFIX of blank frames, self-correcting partway through, unrelated to which
+    distortion was applied - a warmup race, not a geometry bug). Used both to warm up the
+    renderer before capturing anything real, and as a per-frame safety net after."""
+    a = img.reshape(-1, img.shape[-1])
+    return (np.abs(a.astype(np.int16) - a[0]).max(axis=1) < 4).mean() > thresh
+
+
+async def _screenshot(pg):
+    return np.array(Image.open(io.BytesIO(await pg.screenshot())).convert('RGB'))
 
 
 async def _capture(port, n, panel):
@@ -81,14 +110,36 @@ async def _capture(port, n, panel):
         pg.on('console', lambda m: print('  [browser]', m.text) if m.type == 'error' else None)
         await pg.goto(f'http://127.0.0.1:{port}/view.html')
         await pg.wait_for_function('window.__ready===true', timeout=120000)
+
+        # warm up: keep re-rendering frame 0 until it's not blank, instead of a fixed guess at
+        # how long SwiftShader's texture upload takes (varies with machine load / texture size)
+        for _ in range(60):
+            await pg.evaluate('window.setFrame(0)')
+            shot = await _screenshot(pg)
+            if not _is_blank(shot):
+                break
+            await pg.wait_for_timeout(200)
+
         for i in range(n):
-            await pg.evaluate(f'window.setFrame({i})')
-            frames.append(np.array(Image.open(io.BytesIO(await pg.screenshot())).convert('RGB')))
+            if i > 0:
+                await pg.evaluate(f'window.setFrame({i})')
+                shot = await _screenshot(pg)
+            # per-frame safety net - retry a still-blank frame rather than bake it into the video
+            retries = 0
+            while _is_blank(shot) and retries < 20:
+                await pg.wait_for_timeout(200)
+                await pg.evaluate(f'window.setFrame({i})')
+                shot = await _screenshot(pg)
+                retries += 1
+            frames.append(shot)
         await b.close()
     return frames
 
 
-def render(buffers_dir, out_path, loops=3, panel=1280):
+def capture_frames(buffers_dir, panel=1280):
+    """Render every frame in buffers_dir (positions.f32/faces.u32/uv.f32/texture.jpg/meta.json)
+    to RGB arrays. Split out from encode_video() so frame-space distortions (motion_blur) can
+    post-process the raw frames before they're written to video."""
     global BUFFERS
     BUFFERS = buffers_dir
     meta = json.load(open(os.path.join(buffers_dir, 'meta.json')))
@@ -104,14 +155,22 @@ def render(buffers_dir, out_path, loops=3, panel=1280):
     frames = asyncio.run(_capture(port, meta['n_frames'], panel))
     httpd.shutdown()
     print(f'captured {len(frames)} frames in {time.time()-t:.0f}s', flush=True)
+    return frames, meta
 
+
+def encode_video(frames, out_path, fps, loops=3):
     seq = frames * loops
     h, w = seq[0].shape[:2]; w, h = w - w % 2, h - h % 2
-    with imageio.get_writer(out_path, format='FFMPEG', fps=meta['playback_fps'], codec='libx264',
+    with imageio.get_writer(out_path, format='FFMPEG', fps=fps, codec='libx264',
                             output_params=['-crf', '18', '-pix_fmt', 'yuv420p']) as wr:
         for f in seq:
             wr.append_data(f[:h, :w])
     return len(seq)
+
+
+def render(buffers_dir, out_path, loops=3, panel=1280):
+    frames, meta = capture_frames(buffers_dir, panel)
+    return encode_video(frames, out_path, meta['playback_fps'], loops)
 
 
 if __name__ == '__main__':
