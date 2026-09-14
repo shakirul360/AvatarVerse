@@ -15,6 +15,14 @@ fi
 module --quiet purge 2>/dev/null || true
 module load Python/3.13.5-GCCcore-14.3.0
 
+# --- $VSC_DATA/$VSC_SCRATCH themselves: set by a profile.d script that (like Lmod above) only
+# runs in a login shell - a plain `ssh host "cmd"` or bare `srun --pty bash -c` won't have them
+# either, same bug class as Lmod above but a DIFFERENT script, so the Lmod re-source doesn't
+# cover it. Concrete fallback for vsc39181 (see RUNBOOK.md's stage_inputs.sh note).
+: "${VSC_DATA:=/data/leuven/391/vsc39181}"
+: "${VSC_SCRATCH:=/scratch/leuven/391/vsc39181}"
+export VSC_DATA VSC_SCRATCH
+
 # --- data locations on VSC ($VSC_DATA persists, $VSC_SCRATCH is fast + purged) ---
 export AVATARVERSE_DATA="${AVATARVERSE_DATA:-$VSC_DATA/projects/avatarverse-data}"
 export AVATARVERSE_MODELS="$AVATARVERSE_DATA/models/models"
