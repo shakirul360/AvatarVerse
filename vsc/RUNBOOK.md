@@ -185,11 +185,21 @@ frames) do NOT recur on VSC's Linux SwiftShader - confirms both fixes were made 
 level (defensive/general: sanitize NaN normals and retry blank frames regardless of cause)
 rather than papering over something macOS-specific.
 
-### 6. Phase 3
-`vsc/render_array.slurm` (not yet written) + `bash vsc/fetch_outputs.sh` (update its
-`AVATARVERSE_OUT_REMOTE` for the `single`/`mixed` split), then rerun
-`pipeline/generate_trial_pairs.py` (needs updating for the 9-type + 6-mixed-pair catalog and
-the two-folder layout - still has the old 8-type/single-folder assumptions).
+### 6. Phase 3 - DONE
+
+Job 62009167 (30-task array, `vsc/render_array.slurm`): all 30 tasks COMPLETED, 0 failures,
+~25 min total wall-clock (all tasks scheduled concurrently - no queueing). `vsc/merge_outputs.py`
+combined them: 840 single + 360 mixed = 1,200 files, 30/30 combos with exact expected counts
+(28+12 each). Validated: 80-file full-frame random sample, 0 problems. Pulled to the laptop via
+`vsc/fetch_outputs.sh` (845 MB) -> `Datasets/THuman2.0/mos_dataset_textured_v1/`.
+`pipeline/generate_trial_pairs.py` -> 1,710 trial pairs, every video_a/video_b reference
+verified to exist on disk.
+
+**The deliverable is complete**: 6 subjects x 5 motions x (9 single-distortion types x 3
+severities + 6 mixed pairs x 2 severity presets) = 1,200 videos, 1,710 pairwise-comparison
+trial pairs, at `Datasets/THuman2.0/mos_dataset_textured_v1/{single,mixed}/` +
+`trial_pairs.csv`. Next step from here is handing this to whatever tool actually runs the MOS
+study session (the professor's reference pairwise-comparison tool) - not yet wired up.
 
 ## Getting code updates onto VSC
 
