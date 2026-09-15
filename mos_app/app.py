@@ -9,30 +9,19 @@ Run locally:   streamlit run app.py
 Deploy: push this repo to GitHub, deploy on share.streamlit.io pointing at mos_app/app.py,
        then set the GITHUB_TOKEN secret (see .streamlit/secrets.toml.example).
 """
-import base64
 import csv
-import io
 import random
 import time
 import uuid
 from pathlib import Path
 
-import requests
 import streamlit as st
+
+from github_store import append_response_row
 
 # ---------------------------------------------------------------------- config
 VIDEO_BASE = "https://media.githubusercontent.com/media/shakirul360/avatarverse-mos-videos/main/"
 TRIAL_PAIRS_PATH = Path(__file__).parent / "trial_pairs.csv"
-
-# Where responses get committed. Kept in THIS (private) repo, separate from the public video
-# repo, so raw response data isn't sitting in a public repo alongside the videos.
-RESPONSES_REPO = "shakirul360/AvatarVerse"
-RESPONSES_PATH = "mos_app/data/responses.csv"
-RESPONSES_FIELDS = [
-    "participant_id", "timestamp", "age", "sex", "occupation", "expertise", "nationality",
-    "session", "pair_id", "comparison_type", "distortion_type",
-    "video_a", "video_b", "chosen_side", "chosen_level", "response_ms",
-]
 
 SUBJECTS = ["0000", "0100", "0500", "0450", "0150", "0250"]
 CLIPS = ["walk", "front_kick", "bmlmovi_walk", "run", "pickup_box"]
@@ -55,83 +44,8 @@ PRACTICE_PAIRS = [
         level_a="mild", level_b="severe"),
 ]
 
-st.set_page_config(page_title="Avatar Quality Trial", page_icon="🎬", layout="wide")
-
-
-# ---------------------------------------------------------------------- GitHub-backed CSV storage
-def _github_headers():
-    # st.secrets itself raises StreamlitSecretNotFoundError when no secrets.toml exists at all
-    # (not just when a key is missing) - a bare .get() only covers the second case.
-    try:
-        token = st.secrets.get("GITHUB_TOKEN", None)
-    except Exception:
-        token = None
-    if not token:
-        return None
-    return {"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"}
-
-
-def _github_get_file():
-    headers = _github_headers()
-    url = f"https://api.github.com/repos/{RESPONSES_REPO}/contents/{RESPONSES_PATH}"
-    r = requests.get(url, headers=headers, timeout=15)
-    if r.status_code == 404:
-        return None, None
-    r.raise_for_status()
-    body = r.json()
-    content = base64.b64decode(body["content"]).decode("utf-8")
-    return content, body["sha"]
-
-
-def _github_put_file(content, sha, message):
-    headers = _github_headers()
-    url = f"https://api.github.com/repos/{RESPONSES_REPO}/contents/{RESPONSES_PATH}"
-    payload = {
-        "message": message,
-        "content": base64.b64encode(content.encode("utf-8")).decode("ascii"),
-        "branch": "main",
-    }
-    if sha:
-        payload["sha"] = sha
-    r = requests.put(url, headers=headers, json=payload, timeout=15)
-    return r.status_code in (200, 201), r
-
-
-def append_response_row(row: dict):
-    """Append one response as a new row of responses.csv on GitHub. Retries a few times on a
-    409 (someone else's write landed between our get and put - re-fetch the fresh sha and
-    reapply). Falls back to a local file when no GITHUB_TOKEN secret is configured, so the app
-    is fully testable with `streamlit run` before deployment."""
-    if not _github_headers():
-        local = Path(__file__).parent / "local_responses.csv"
-        is_new = not local.exists()
-        with open(local, "a", newline="") as f:
-            w = csv.DictWriter(f, fieldnames=RESPONSES_FIELDS)
-            if is_new:
-                w.writeheader()
-            w.writerow(row)
-        return
-
-    for attempt in range(5):
-        content, sha = _github_get_file()
-        buf = io.StringIO()
-        w = csv.DictWriter(buf, fieldnames=RESPONSES_FIELDS)
-        if content is None:
-            w.writeheader()
-        else:
-            buf.write(content)
-            if not content.endswith("\n"):
-                buf.write("\n")
-        w.writerow(row)
-        ok, resp = _github_put_file(buf.getvalue(), sha, f"Response: {row['participant_id'][:8]}/{row['pair_id']}")
-        if ok:
-            return
-        if resp.status_code == 409:
-            time.sleep(0.3 * (attempt + 1))
-            continue
-        st.warning(f"Could not save this response to GitHub (status {resp.status_code}). Continuing anyway.")
-        return
-    st.warning("Could not save this response after several attempts (repeated write conflicts). Continuing anyway.")
+st.set_page_config(page_title="Avatar Quality Trial", page_icon="🎬", layout="wide",
+                   initial_sidebar_state="collapsed")
 
 
 # ---------------------------------------------------------------------- data loading
