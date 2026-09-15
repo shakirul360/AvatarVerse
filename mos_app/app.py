@@ -38,6 +38,11 @@ SUBJECTS = ["0000", "0100", "0500", "0450", "0150", "0250"]
 CLIPS = ["walk", "front_kick", "bmlmovi_walk", "run", "pickup_box"]
 KNOWN_SESSIONS = [f"{s}_{c}" for s in SUBJECTS for c in CLIPS]
 
+# Testing-phase knob: caps each session to its first N (already-shuffled, so effectively
+# random) main trials instead of the full 57, for quick end-to-end runs. Set to None to run
+# the real study at full length - remember to flip this back before real data collection.
+MAIN_TRIALS_LIMIT = 10
+
 PRACTICE_PAIRS = [
     dict(pair_id="practice-1", comparison_type="practice", distortion_type="jitter",
         video_a="single/0000_walk_reference.mp4", video_b="single/0000_walk_jitter_severe.mp4",
@@ -159,6 +164,8 @@ def init_state():
         session_pairs = [r for r in all_pairs if r["subject"] == subject and r["clip"] == clip]
         rng = random.Random(ss.participant_id)
         rng.shuffle(session_pairs)
+        if MAIN_TRIALS_LIMIT is not None:
+            session_pairs = session_pairs[:MAIN_TRIALS_LIMIT]
         ss.main_pairs = session_pairs
         ss.trial_started_at = None
 
