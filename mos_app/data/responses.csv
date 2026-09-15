@@ -1,0 +1,2 @@
+participant_id,timestamp,age,sex,occupation,expertise,nationality,session,pair_id,comparison_type,distortion_type,video_a,video_b,chosen_side,chosen_level,response_ms
+86625511-a241-4fbc-88a4-8ecb1c0b0e7c,2026-09-15T19:25:17Z,25-34,Male,Researcher / Academic staff,Intermediate,South Asia,0500_front_kick,1522,adjacent_severity,mesh_decimation,single/0500_front_kick_mesh_decimation_moderate.mp4,single/0500_front_kick_mesh_decimation_severe.mp4,a,moderate,7094
