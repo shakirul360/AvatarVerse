@@ -6,3 +6,5 @@ __pycache__/
 *.pyc
 # slurm job logs (vsc/*.slurm writes these to the submit dir)
 av-*.out
+mos_app/.streamlit/secrets.toml
+mos_app/local_responses.csv
