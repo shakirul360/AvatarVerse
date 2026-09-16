@@ -14,6 +14,7 @@ RESPONSES_FIELDS = [
     "participant_id", "timestamp", "age", "sex", "occupation", "expertise", "nationality",
     "session", "pair_id", "comparison_type", "distortion_type",
     "video_a", "video_b", "chosen_side", "chosen_level", "response_ms",
+    "rating_a", "rating_b",   # ITU-T ACR-style 1-5 absolute quality rating, per video
 ]
 LOCAL_FALLBACK = Path(__file__).parent / "local_responses.csv"
 

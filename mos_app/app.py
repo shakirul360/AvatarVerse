@@ -1,9 +1,11 @@
-"""Avatar Quality Trial - pairwise-comparison MOS tool for the AvatarVerse study.
+"""Avatar Quality Trial - pairwise-comparison + absolute-rating MOS tool for the AvatarVerse study.
 
 Flow: consent -> demographics -> 3 practice trials -> the participant's assigned session's
-57 trial pairs -> completion. Videos are served from the public avatarverse-mos-videos repo
-(GitHub LFS); each response is appended, server-side, to responses.csv committed back to this
-repo via the GitHub Contents API - the token never reaches the participant's browser.
+57 trial pairs -> completion. Each trial asks for a 1-5 ITU-T ACR-style quality rating on both
+videos (required, unlocks the choice buttons) plus a pairwise "looks better" choice. Videos are
+served from the public avatarverse-mos-videos repo (GitHub LFS); each response is appended,
+server-side, to responses.csv committed back to this repo via the GitHub Contents API - the
+token never reaches the participant's browser.
 
 Run locally:   streamlit run app.py
 Deploy: push this repo to GitHub, deploy on share.streamlit.io pointing at mos_app/app.py,
@@ -31,6 +33,15 @@ KNOWN_SESSIONS = [f"{s}_{c}" for s in SUBJECTS for c in CLIPS]
 # random) main trials instead of the full 57, for quick end-to-end runs. Set to None to run
 # the real study at full length - remember to flip this back before real data collection.
 MAIN_TRIALS_LIMIT = 10
+
+# ITU-T ACR-style absolute quality scale, asked for each video independently alongside the
+# pairwise choice - the study needs literal 1-5 MOS numbers, not just win/loss preference data.
+RATING_OPTIONS = ["Select a rating", "1 - Bad", "2 - Poor", "3 - Fair", "4 - Good", "5 - Excellent"]
+
+
+def _rating_value(label):
+    return None if label == RATING_OPTIONS[0] else int(label[0])
+
 
 PRACTICE_PAIRS = [
     dict(pair_id="practice-1", comparison_type="practice", distortion_type="jitter",
@@ -164,18 +175,62 @@ def render_trial(pair, phase, index, total):
         f'<span class="dim" style="font-family:monospace;">{index + 1} / {total}</span></div>',
         unsafe_allow_html=True)
 
+    # Two-step trial: pick the better-looking video first, then (once a side is picked) rate
+    # both videos' absolute quality before advancing. Keeps the pairwise task itself fast and
+    # only asks for the extra 1-5 judgment once the participant is already comparing them.
+    choice_key = f"choice-{pair['pair_id']}"
+    chosen_side = ss.get(choice_key)
+
     col_a, col_b = st.columns(2, gap="medium")
     with col_a:
         st.video(VIDEO_BASE + pair["video_a"], loop=True, autoplay=True, muted=True)
-        if st.button("This one looks better  ←", key=f"choose-a-{pair['pair_id']}", use_container_width=True):
-            record_choice(pair, phase, "a")
+        if chosen_side is None:
+            if st.button("This one looks better  ←", key=f"choose-a-{pair['pair_id']}", use_container_width=True):
+                ss[choice_key] = "a"
+                st.rerun()
+        else:
+            st.markdown(
+                f'<p class="dim" style="text-align:center;">'
+                f'{"✓ Your choice" if chosen_side == "a" else "&nbsp;"}</p>', unsafe_allow_html=True)
     with col_b:
         st.video(VIDEO_BASE + pair["video_b"], loop=True, autoplay=True, muted=True)
-        if st.button("→  This one looks better", key=f"choose-b-{pair['pair_id']}", use_container_width=True):
-            record_choice(pair, phase, "b")
+        if chosen_side is None:
+            if st.button("→  This one looks better", key=f"choose-b-{pair['pair_id']}", use_container_width=True):
+                ss[choice_key] = "b"
+                st.rerun()
+        else:
+            st.markdown(
+                f'<p class="dim" style="text-align:center;">'
+                f'{"✓ Your choice" if chosen_side == "b" else "&nbsp;"}</p>', unsafe_allow_html=True)
+
+    if chosen_side is None:
+        st.markdown(
+            '<p class="dim" style="text-align:center;margin-top:10px;">'
+            'Pick the video that looks better to continue.</p>', unsafe_allow_html=True)
+        return
+
+    col_a2, col_b2 = st.columns(2, gap="medium")
+    with col_a2:
+        rating_a_label = st.selectbox("Rate this video's quality", RATING_OPTIONS,
+            key=f"rating-a-{pair['pair_id']}")
+    with col_b2:
+        rating_b_label = st.selectbox("Rate this video's quality", RATING_OPTIONS,
+            key=f"rating-b-{pair['pair_id']}")
+
+    rating_a = _rating_value(rating_a_label)
+    rating_b = _rating_value(rating_b_label)
+    both_rated = rating_a is not None and rating_b is not None
+
+    if st.button("Continue", key=f"continue-{pair['pair_id']}", use_container_width=True, disabled=not both_rated):
+        del ss[choice_key]
+        record_choice(pair, phase, chosen_side, rating_a, rating_b)
+    if not both_rated:
+        st.markdown(
+            '<p class="dim" style="text-align:center;margin-top:10px;">'
+            'Rate both videos above to continue.</p>', unsafe_allow_html=True)
 
 
-def record_choice(pair, phase, side):
+def record_choice(pair, phase, side, rating_a, rating_b):
     ss = st.session_state
     response_ms = int((time.time() - ss.trial_started_at) * 1000)
 
@@ -188,6 +243,7 @@ def record_choice(pair, phase, side):
             session=ss.session, pair_id=pair["pair_id"], comparison_type=pair["comparison_type"],
             distortion_type=pair["distortion_type"], video_a=pair["video_a"], video_b=pair["video_b"],
             chosen_side=side, chosen_level=chosen_level, response_ms=response_ms,
+            rating_a=rating_a, rating_b=rating_b,
         ))
 
     ss.trial_started_at = None
