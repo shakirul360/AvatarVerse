@@ -9,12 +9,18 @@ import requests
 import streamlit as st
 
 RESPONSES_REPO = "shakirul360/AvatarVerse"
-RESPONSES_PATH = "mos_app/data/responses.csv"
+# A new filename, not a schema change to the old responses.csv in place: that file already has
+# real committed pairwise-trial responses under the old header (pair_id/video_a/video_b/
+# chosen_side/chosen_level/rating_a/rating_b/...) - appending new-schema rows to it would corrupt
+# both, since append_response_row() writes one header per file. responses.csv itself is left
+# completely untouched; this single-stimulus track writes to its own file from a clean slate.
+RESPONSES_PATH = "mos_app/data/responses_geometry_v1.csv"
+# Single-stimulus ACR schema (pairwise comparison retired - see mos_app/app.py's docstring).
 RESPONSES_FIELDS = [
     "participant_id", "timestamp", "age", "sex", "occupation", "expertise", "nationality",
-    "session", "pair_id", "comparison_type", "distortion_type",
-    "video_a", "video_b", "chosen_side", "chosen_level", "response_ms",
-    "rating_a", "rating_b",   # ITU-T ACR-style 1-5 absolute quality rating, per video
+    "session", "trial_id", "distortion_type", "severity", "asset_id",
+    "rating",   # ITU-T ACR-style 1-5 absolute quality rating, single stimulus
+    "response_ms",
 ]
 LOCAL_FALLBACK = Path(__file__).parent / "local_responses.csv"
 
@@ -82,7 +88,7 @@ def append_response_row(row: dict):
             if not content.endswith("\n"):
                 buf.write("\n")
         w.writerow(row)
-        ok, resp = github_put_file(buf.getvalue(), sha, f"Response: {row['participant_id'][:8]}/{row['pair_id']}")
+        ok, resp = github_put_file(buf.getvalue(), sha, f"Response: {row['participant_id'][:8]}/{row['trial_id']}")
         if ok:
             return
         if resp.status_code == 409:

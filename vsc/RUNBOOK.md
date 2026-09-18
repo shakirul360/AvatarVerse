@@ -219,3 +219,76 @@ credentials).
 `quota -s` on VSC spews permission noise from other users' snapshots — ignore it. Use
 `du -sh $VSC_DATA $VSC_SCRATCH` or the OnDemand dashboard. Footprint is ~250 MB in + ~1–3 GB out;
 default wICE allocations (75 GB `$VSC_DATA`, large `$VSC_SCRATCH`) are plenty.
+
+## Interactive-viewer track (2026-09-18/19): pairwise video retired, single-stimulus + free-orbit 3D adopted
+
+New track, parallel to the completed video pipeline above (that deliverable is left untouched -
+see `pipeline/generate_geometry_dataset.py`'s docstring). Participants now rate ONE live,
+free-orbit interactive 3D avatar per trial (1-5 ACR) instead of comparing two videos -
+Bradley-Terry pairwise ranking is retired for this track. Mixed (compound) distortions are kept
+as their own single-stimulus items. `motion_blur` is dropped entirely (no 3D-geometry
+equivalent - see `distortions.py`'s `FRAME_LEVELS` comment) - catalog is 8 distortion types now,
+37 instances/combo (1 reference + 8x3 + 6x2).
+
+**Phase 0 (de-risking, DONE)**: real Draco round-trip spike on subject `0000` (302,021 verts)
+found point-cloud compression only hits 2.4-3.2x (not the 5-20x mesh-connectivity-prediction
+number that assumes topology is present), because per-frame data has no connectivity to predict
+from. Validated fix: delta-from-frame-0 point-cloud encoding (deltas cluster near zero) +
+absolute-position mesh encoding for frame 0 only. Final recipe: `base.drc` (connectivity+UV+
+frame-0, 14-bit, ~8.2MB) + `frames/*.drc` (per-frame deltas, 10-bit, ~800KB avg) = **~45MB/
+instance**. User explicitly accepted this bandwidth cost (~900MB-1.1GB at the chosen 20-instance
+session cap) over a uniform delivery-resolution cap or reverting to a multi-angle video switcher,
+after seeing all three options' real numbers.
+
+**Phase 1 (one instance, DONE)**: `pipeline/geometry_export.py` implements the recipe above.
+`viewer/` (three.js r160 ES modules - OrbitControls/DRACOLoader are jsm-only by r160, confirmed;
+vendored via `npm install three@0.160.1`, not CDN-loaded, same reasoning as the vendored
+`three.min.js`) live-decodes and animates a bundle with free camera control. Verified in a real
+Chromium via Playwright: correct front-facing default view (the pending "avatar faces backward"
+fix landed here - one-line camera-eye flip in `viewer.js`), orbit confirmed by dragging to the
+back view, zero console errors, no NaN/degenerate-triangle artifacts.
+
+**Phase 2 (one full combo pilot, DONE)**: `pipeline/metrics.py` (Chamfer/Hausdorff via
+`scipy.spatial.cKDTree`, same nearest-neighbor pattern `distortions.build_decimation()` already
+used) + `pipeline/generate_geometry_dataset.py` (mirrors `generate_dataset.py`'s STAGE_OF
+sequencing, swaps `renderer.render()` for `geometry_export.write_geometry_bundle()` +
+`metrics.compute_geometry_metrics()`). Ran for real: subject `0000`/`walk`, 37/37 instances,
+1.3GB total. Sanity-checked: reference reads exactly 0.0 chamfer/hausdorff (comparing to
+itself); jitter's chamfer_mean scales monotonically with severity (6.9mm -> 15.9mm -> 30.7mm
+mild/moderate/severe) - physically sensible. Pilot output lives at
+`Datasets/THuman2.0/mos_dataset_geometry_pilot_0000_walk/`.
+
+Found and fixed a real inefficiency during this run: `compute_geometry_metrics()` was building
+each frame's two cKDTrees twice (once inside `chamfer_distance()`, once inside
+`hausdorff_distance()`, both called separately) - fixed to build each tree once and reuse it for
+both metrics. First full-combo run (pre-fix): **1h56m**. Timing re-run with the fix, for the
+real Phase 3 Slurm `--time` budget: [update once the background re-run finishes].
+
+`mos_app/` reworked for single-stimulus: new `pipeline/generate_trial_items.py` (no pairing
+logic needed - one row per manifest instance), `mos_app/github_store.py`'s `RESPONSES_FIELDS`
+changed to the single-stimulus schema, writing to a NEW file
+(`mos_app/data/responses_geometry_v1.csv`) rather than the old pairwise `responses.csv`, which
+already has real committed participant data under the old schema and is left untouched.
+`MAIN_TRIALS_LIMIT = 20` (down from the full 37/combo) per the user's explicit session-length
+call after seeing the bandwidth numbers. Verified end-to-end locally via Playwright: consent ->
+demographics -> 3 practice trials (real live viewer embedded via
+`st.components.v1.iframe`) -> a real main trial -> response recorded with the correct schema.
+
+**Phase 3 (full VSC regen, IN PROGRESS)**: `vsc/geometry_export_array.slurm` (same 30-task
+array/div-mod structure as `render_array.slurm`, calls `generate_geometry_dataset` instead of
+`generate_dataset` - no Playwright/Chromium needed at all for this track, so expect it to run
+faster per-task than the video job, `--time` placeholder carried over from that job until the
+timing re-run confirms a real number), `vsc/merge_geometry_outputs.py` (same validate-then-merge
+shape as `merge_outputs.py`, but validates each instance's directory contents - `meta.json`
+parses, `base.drc`/`texture.jpg` exist, `frames/` has exactly `n_delta_frames` files - since a
+truncated instance here is a bad file inside a directory, not a missing top-level file),
+`vsc/fetch_geometry_outputs.sh` (pulls to `Datasets/THuman2.0/mos_dataset_geometry_v1/`).
+`pipeline/requirements.txt` gained `DracoPy>=2.1.0` (confirmed building cleanly on macOS/arm64;
+**VSC login-node build not yet verified** - builds from source, needs a C++ toolchain + cmake,
+no prebuilt Linux/x86_64 wheel as of 2.1.0).
+
+**Blocked on VSC connectivity as of 2026-09-19**: `ssh vsc` refused
+(`login.hpc.kuleuven.be port 22`) from the current network - the IP-whitelist firewall
+(`firewall.vscentrum.be`) needs re-whitelisting after a network change, same as documented
+above. Can't verify the DracoPy build on the actual login node, or submit the array job, until
+that's resolved.

@@ -12,3 +12,8 @@ imageio-ffmpeg>=0.5   # bundled ffmpeg binary - no system ffmpeg needed
 playwright>=1.45      # `playwright install chromium` staged on the login node
 pymeshlab>=2023.12    # UV-aware mesh_decimation distortion (phase 2)
 fast-simplification>=0.1.7
+DracoPy>=2.1.0         # geometry-bundle export for the interactive-viewer track (phase 2+);
+                       # builds from source (no prebuilt Linux/x86_64 wheel as of 2.1.0) - needs
+                       # a C++ toolchain on whichever machine installs it. Confirmed building
+                       # cleanly on macOS/arm64; VSC login-node build not yet verified (needs
+                       # SSH access - see vsc/RUNBOOK.md's IP-whitelist note).

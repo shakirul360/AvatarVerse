@@ -163,16 +163,23 @@ def skin_sequence(subject, clip_key, target_speed=0.75, playback_fps=30,
     return positions, wrap.Fd, wrap.UVd, wrap.texture_path, meta
 
 
-def write_buffers(out_dir, positions, faces, uv, texture_src, meta):
+def write_texture(texture_src, out_path, quality=92):
+    """Resize-if-needed + JPEG-encode a texture. Shared by write_buffers() (legacy video track)
+    and geometry_export.write_geometry_bundle() (interactive-viewer track) - one place to change
+    TEX_MAX/quality instead of two copies drifting apart."""
     from PIL import Image
+    tex = Image.open(texture_src).convert('RGB')
+    if max(tex.size) > TEX_MAX:
+        tex = tex.resize((TEX_MAX, TEX_MAX), Image.LANCZOS)
+    tex.save(out_path, quality=quality)
+
+
+def write_buffers(out_dir, positions, faces, uv, texture_src, meta):
     os.makedirs(out_dir, exist_ok=True)
     positions.astype(np.float32).tofile(os.path.join(out_dir, 'positions.f32'))
     faces.astype(np.uint32).tofile(os.path.join(out_dir, 'faces.u32'))
     uv.astype(np.float32).tofile(os.path.join(out_dir, 'uv.f32'))
-    tex = Image.open(texture_src).convert('RGB')
-    if max(tex.size) > TEX_MAX:
-        tex = tex.resize((TEX_MAX, TEX_MAX), Image.LANCZOS)
-    tex.save(os.path.join(out_dir, 'texture.jpg'), quality=92)
+    write_texture(texture_src, os.path.join(out_dir, 'texture.jpg'))
     json.dump(meta, open(os.path.join(out_dir, 'meta.json'), 'w'), indent=2)
 
 

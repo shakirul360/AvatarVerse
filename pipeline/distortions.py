@@ -120,25 +120,33 @@ def build_compressed_texture(texture_path, quality, out_path):
 
 
 # ---------------------------------------------------------------- frame-space (after render)
-FRAME_LEVELS = {'motion_blur': gen.LEVELS['motion_blur']}   # window: 2 / 4 / 7
-apply_motion_blur = gen.apply_motion_blur   # unchanged - already operates on rendered RGB frames
+# motion_blur (post-render RGB pixel averaging - see generate_mos_pilot_dataset.apply_motion_blur)
+# has no 3D-geometry equivalent and can't exist in the free-orbit interactive-viewer track, so
+# it's deliberately absent from FRAME_LEVELS/LEVELS/MIXED_PAIRS below. The legacy video track's
+# already-shipped mp4s (Datasets/THuman2.0/mos_dataset_textured_v1/) don't depend on this
+# catalog at runtime - this module is edited in place rather than forked. apply_motion_blur
+# itself (gen.apply_motion_blur) is untouched and still importable if ever needed again.
+FRAME_LEVELS = {}
 
 
 # ---------------------------------------------------------------- catalog
 LEVELS = {**{k: gen.LEVELS[k] for k in POSE_TYPES}, **MESH_LEVELS, **TEXTURE_LEVELS, **FRAME_LEVELS}
-DISTORTION_TYPES = list(LEVELS.keys())   # 9: 5 pose + vertex_quantization + mesh_decimation + texture_compression + motion_blur
+DISTORTION_TYPES = list(LEVELS.keys())   # 8: 5 pose + vertex_quantization + mesh_decimation + texture_compression
 SEVERITIES = ['mild', 'moderate', 'severe']
 
 # 6 curated cross-category pairs (one pose-space + one mesh/texture-space - same-category pairs
 # like jitter+joint_noise are largely redundant), each motivated by a real co-occurring
 # degradation. 2 matched-severity presets per pair (not all 3) to keep session length bounded -
-# see the 2026-09 design discussion.
+# see the 2026-09 design discussion. motion_blur+vertex_quantization (the video track's 6th
+# pair) has no equivalent here since motion_blur is dropped for this track - replaced with a
+# second vertex_quantization-involving pairing so mesh-space distortions stay represented twice,
+# same as the other mesh-space type (mesh_decimation).
 MIXED_PAIRS = [
     ('jitter', 'texture_compression'),      # noisy tracking + bandwidth-limited texture (streaming)
     ('frame_drop', 'mesh_decimation'),      # low frame rate + reduced geometry LOD
     ('joint_noise', 'vertex_quantization'), # noisy pose estimation + coarse geometry precision
     ('smoothing', 'texture_compression'),   # over-filtered motion + compressed texture
     ('param_quantization', 'mesh_decimation'),  # quantized pose + reduced mesh (compression codec)
-    ('motion_blur', 'vertex_quantization'), # cheap capture + cheap compression
+    ('jitter', 'vertex_quantization'),      # noisy tracking + coarse geometry precision
 ]
 MIXED_SEVERITY_PRESETS = ['mild', 'severe']   # matched: (mild,mild) and (severe,severe)
