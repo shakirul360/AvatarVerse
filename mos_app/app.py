@@ -1,16 +1,11 @@
-"""Avatar Quality Trial - single-stimulus ACR (Absolute Category Rating) MOS tool for the
-AvatarVerse study.
+"""Avatar Quality Trial - pairwise-comparison + absolute-rating MOS tool for the AvatarVerse study.
 
 Flow: consent -> demographics -> 3 practice trials -> the participant's assigned session's
-trial items -> completion. Each trial embeds a live, free-orbit interactive 3D viewer
-(viewer/viewer.html, three.js + OrbitControls + DRACOLoader - see that file and
-pipeline/geometry_export.py for how the geometry it loads is built and compressed) and asks
-for a single 1-5 ITU-T ACR-style quality rating. Pairwise comparison (this app's earlier design)
-is retired for this track - see mos_app/github_store.py's RESPONSES_PATH comment for why
-responses land in a new file rather than the old pairwise responses.csv.
-
-Each response is appended, server-side, to a CSV committed back to this repo via the GitHub
-Contents API - the token never reaches the participant's browser.
+57 trial pairs -> completion. Each trial asks for a 1-5 ITU-T ACR-style quality rating on both
+videos (required, unlocks the choice buttons) plus a pairwise "looks better" choice. Videos are
+served from the public avatarverse-mos-videos repo (GitHub LFS); each response is appended,
+server-side, to responses.csv committed back to this repo via the GitHub Contents API - the
+token never reaches the participant's browser.
 
 Run locally:   streamlit run app.py
 Deploy: push this repo to GitHub, deploy on share.streamlit.io pointing at mos_app/app.py,
@@ -23,30 +18,24 @@ import uuid
 from pathlib import Path
 
 import streamlit as st
-import streamlit.components.v1 as components
 
 from github_store import append_response_row
 
 # ---------------------------------------------------------------------- config
-# Where the viewer (viewer.html/viewer.js/vendor/) and the geometry bundles it loads are hosted.
-# Local testing: both point at a local http.server (see mos_app/README or the Phase 2 test
-# notes). Deployment: pushed to a public GitHub-LFS-backed repo, same pattern the earlier
-# pairwise track used for video hosting.
-VIEWER_BASE = "http://localhost:8791/viewer"
-GEOMETRY_BASE = "http://localhost:8791/bundles"
-TRIAL_ITEMS_PATH = Path(__file__).parent / "trial_items.csv"
+VIDEO_BASE = "https://media.githubusercontent.com/media/shakirul360/avatarverse-mos-videos/main/"
+TRIAL_PAIRS_PATH = Path(__file__).parent / "trial_pairs.csv"
 
 SUBJECTS = ["0000", "0100", "0500", "0450", "0150", "0250"]
 CLIPS = ["walk", "front_kick", "bmlmovi_walk", "run", "pickup_box"]
 KNOWN_SESSIONS = [f"{s}_{c}" for s in SUBJECTS for c in CLIPS]
 
-# Study-design cap (not just a testing knob): the free-orbit viewer's per-instance download is
-# large enough (~45MB, see pipeline/geometry_export.py's module docstring) that a full 37-item
-# session was judged too much data (~1.5-1.9GB) - capped to 20 items/session instead, chosen
-# after measuring the real bundle sizes against session-length alternatives.
-MAIN_TRIALS_LIMIT = 20
+# Testing-phase knob: caps each session to its first N (already-shuffled, so effectively
+# random) main trials instead of the full 57, for quick end-to-end runs. Set to None to run
+# the real study at full length - remember to flip this back before real data collection.
+MAIN_TRIALS_LIMIT = 10
 
-# ITU-T ACR-style absolute quality scale - unchanged from the pairwise-era app.
+# ITU-T ACR-style absolute quality scale, asked for each video independently alongside the
+# pairwise choice - the study needs literal 1-5 MOS numbers, not just win/loss preference data.
 RATING_OPTIONS = ["Select a rating", "1 - Bad", "2 - Poor", "3 - Fair", "4 - Good", "5 - Excellent"]
 
 
@@ -54,13 +43,16 @@ def _rating_value(label):
     return None if label == RATING_OPTIONS[0] else int(label[0])
 
 
-PRACTICE_ITEMS = [
-    dict(trial_id="practice-1", subject="0000", clip="walk",
-        distortion_type="none", severity="none", asset_id="0000_walk_reference"),
-    dict(trial_id="practice-2", subject="0000", clip="walk",
-        distortion_type="jitter", severity="severe", asset_id="0000_walk_jitter_severe"),
-    dict(trial_id="practice-3", subject="0000", clip="walk",
-        distortion_type="mesh_decimation", severity="severe", asset_id="0000_walk_mesh_decimation_severe"),
+PRACTICE_PAIRS = [
+    dict(pair_id="practice-1", comparison_type="practice", distortion_type="jitter",
+        video_a="single/0000_walk_reference.mp4", video_b="single/0000_walk_jitter_severe.mp4",
+        level_a="reference", level_b="severe"),
+    dict(pair_id="practice-2", comparison_type="practice", distortion_type="texture_compression",
+        video_a="single/0000_walk_reference.mp4", video_b="single/0000_walk_texture_compression_mild.mp4",
+        level_a="reference", level_b="mild"),
+    dict(pair_id="practice-3", comparison_type="practice", distortion_type="vertex_quantization",
+        video_a="single/0000_walk_vertex_quantization_mild.mp4", video_b="single/0000_walk_vertex_quantization_severe.mp4",
+        level_a="mild", level_b="severe"),
 ]
 
 st.set_page_config(page_title="Avatar Quality Trial", page_icon="🎬", layout="wide",
@@ -69,13 +61,9 @@ st.set_page_config(page_title="Avatar Quality Trial", page_icon="🎬", layout="
 
 # ---------------------------------------------------------------------- data loading
 @st.cache_data
-def load_trial_items():
-    with open(TRIAL_ITEMS_PATH) as f:
+def load_trial_pairs():
+    with open(TRIAL_PAIRS_PATH) as f:
         return list(csv.DictReader(f))
-
-
-def viewer_url(item):
-    return f"{VIEWER_BASE}/viewer.html?bundle={GEOMETRY_BASE}/{item['asset_id']}"
 
 
 def pick_session():
@@ -96,14 +84,14 @@ def init_state():
         ss.demographics = {}
         ss.practice_idx = 0
         ss.main_idx = 0
-        all_items = load_trial_items()
+        all_pairs = load_trial_pairs()
         subject, clip = ss.session.split("_", 1)
-        session_items = [r for r in all_items if r["subject"] == subject and r["clip"] == clip]
+        session_pairs = [r for r in all_pairs if r["subject"] == subject and r["clip"] == clip]
         rng = random.Random(ss.participant_id)
-        rng.shuffle(session_items)
+        rng.shuffle(session_pairs)
         if MAIN_TRIALS_LIMIT is not None:
-            session_items = session_items[:MAIN_TRIALS_LIMIT]
-        ss.main_items = session_items
+            session_pairs = session_pairs[:MAIN_TRIALS_LIMIT]
+        ss.main_pairs = session_pairs
         ss.trial_started_at = None
 
 
@@ -134,10 +122,9 @@ def screen_welcome():
     st.markdown('<p class="eyebrow">AvatarVerse &middot; Perceptual Quality Study</p>', unsafe_allow_html=True)
     st.title("Avatar Quality Trial")
     st.markdown(
-        '<p class="dim">You\'ll see a 3D avatar in motion, one at a time. Drag to rotate it and '
-        'scroll to zoom - look at it from a few angles - then rate its overall quality from 1 '
-        '(Bad) to 5 (Excellent). There\'s no right answer &mdash; just go with your first '
-        'impression. A few practice trials come first.</p>',
+        '<p class="dim">You\'ll see short pairs of videos of a 3D avatar in motion, side by '
+        'side. For each pair, choose the one that looks better to you. There\'s no right '
+        'answer &mdash; just go with your first impression. A few practice pairs come first.</p>',
         unsafe_allow_html=True)
     consent = st.checkbox(
         "I'm 18 or older and agree to take part in this study. My responses are anonymous "
@@ -176,7 +163,7 @@ def screen_demographics():
                 st.rerun()
 
 
-def render_trial(item, phase, index, total):
+def render_trial(pair, phase, index, total):
     ss = st.session_state
     if ss.trial_started_at is None:
         ss.trial_started_at = time.time()
@@ -188,60 +175,100 @@ def render_trial(item, phase, index, total):
         f'<span class="dim" style="font-family:monospace;">{index + 1} / {total}</span></div>',
         unsafe_allow_html=True)
 
-    components.iframe(viewer_url(item), height=650, scrolling=False)
-    st.markdown(
-        '<p class="dim" style="text-align:center;margin-top:8px;">Drag to rotate &middot; scroll to zoom</p>',
-        unsafe_allow_html=True)
+    # Two-step trial: pick the better-looking video first, then (once a side is picked) rate
+    # both videos' absolute quality before advancing. Keeps the pairwise task itself fast and
+    # only asks for the extra 1-5 judgment once the participant is already comparing them.
+    choice_key = f"choice-{pair['pair_id']}"
+    chosen_side = ss.get(choice_key)
 
-    rating_label = st.selectbox("Rate this avatar's overall quality", RATING_OPTIONS,
-        key=f"rating-{item['trial_id']}")
-    rating = _rating_value(rating_label)
+    col_a, col_b = st.columns(2, gap="medium")
+    with col_a:
+        st.video(VIDEO_BASE + pair["video_a"], loop=True, autoplay=True, muted=True)
+        if chosen_side is None:
+            if st.button("This one looks better  ←", key=f"choose-a-{pair['pair_id']}", use_container_width=True):
+                ss[choice_key] = "a"
+                st.rerun()
+        else:
+            st.markdown(
+                f'<p class="dim" style="text-align:center;">'
+                f'{"✓ Your choice" if chosen_side == "a" else "&nbsp;"}</p>', unsafe_allow_html=True)
+    with col_b:
+        st.video(VIDEO_BASE + pair["video_b"], loop=True, autoplay=True, muted=True)
+        if chosen_side is None:
+            if st.button("→  This one looks better", key=f"choose-b-{pair['pair_id']}", use_container_width=True):
+                ss[choice_key] = "b"
+                st.rerun()
+        else:
+            st.markdown(
+                f'<p class="dim" style="text-align:center;">'
+                f'{"✓ Your choice" if chosen_side == "b" else "&nbsp;"}</p>', unsafe_allow_html=True)
 
-    if st.button("Continue", key=f"continue-{item['trial_id']}", use_container_width=True,
-                disabled=rating is None):
-        record_rating(item, phase, rating)
-    if rating is None:
+    if chosen_side is None:
         st.markdown(
             '<p class="dim" style="text-align:center;margin-top:10px;">'
-            'Rate the avatar above to continue.</p>', unsafe_allow_html=True)
+            'Pick the video that looks better to continue.</p>', unsafe_allow_html=True)
+        return
+
+    col_a2, col_b2 = st.columns(2, gap="medium")
+    with col_a2:
+        rating_a_label = st.selectbox("Rate this video's quality", RATING_OPTIONS,
+            key=f"rating-a-{pair['pair_id']}")
+    with col_b2:
+        rating_b_label = st.selectbox("Rate this video's quality", RATING_OPTIONS,
+            key=f"rating-b-{pair['pair_id']}")
+
+    rating_a = _rating_value(rating_a_label)
+    rating_b = _rating_value(rating_b_label)
+    both_rated = rating_a is not None and rating_b is not None
+
+    if st.button("Continue", key=f"continue-{pair['pair_id']}", use_container_width=True, disabled=not both_rated):
+        del ss[choice_key]
+        record_choice(pair, phase, chosen_side, rating_a, rating_b)
+    if not both_rated:
+        st.markdown(
+            '<p class="dim" style="text-align:center;margin-top:10px;">'
+            'Rate both videos above to continue.</p>', unsafe_allow_html=True)
 
 
-def record_rating(item, phase, rating):
+def record_choice(pair, phase, side, rating_a, rating_b):
     ss = st.session_state
     response_ms = int((time.time() - ss.trial_started_at) * 1000)
 
     if phase == "main":
+        chosen_level = pair["level_a"] if side == "a" else pair["level_b"]
         append_response_row(dict(
             participant_id=ss.participant_id, timestamp=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             age=ss.demographics["age"], sex=ss.demographics["sex"], occupation=ss.demographics["occupation"],
             expertise=ss.demographics["expertise"], nationality=ss.demographics["nationality"],
-            session=ss.session, trial_id=item["trial_id"], distortion_type=item["distortion_type"],
-            severity=item["severity"], asset_id=item["asset_id"], rating=rating, response_ms=response_ms,
+            session=ss.session, pair_id=pair["pair_id"], comparison_type=pair["comparison_type"],
+            distortion_type=pair["distortion_type"], video_a=pair["video_a"], video_b=pair["video_b"],
+            chosen_side=side, chosen_level=chosen_level, response_ms=response_ms,
+            rating_a=rating_a, rating_b=rating_b,
         ))
 
     ss.trial_started_at = None
     if phase == "practice":
         ss.practice_idx += 1
-        if ss.practice_idx >= len(PRACTICE_ITEMS):
+        if ss.practice_idx >= len(PRACTICE_PAIRS):
             ss.stage = "main"
     else:
         ss.main_idx += 1
-        if ss.main_idx >= len(ss.main_items):
+        if ss.main_idx >= len(ss.main_pairs):
             ss.stage = "done"
     st.rerun()
 
 
 def screen_practice():
-    render_trial(PRACTICE_ITEMS[st.session_state.practice_idx], "practice",
-                st.session_state.practice_idx, len(PRACTICE_ITEMS))
+    render_trial(PRACTICE_PAIRS[st.session_state.practice_idx], "practice",
+                st.session_state.practice_idx, len(PRACTICE_PAIRS))
 
 
 def screen_main():
     ss = st.session_state
-    if not ss.main_items:
+    if not ss.main_pairs:
         st.error("Could not load the trial set for this session. Please refresh to try again.")
         return
-    render_trial(ss.main_items[ss.main_idx], "main", ss.main_idx, len(ss.main_items))
+    render_trial(ss.main_pairs[ss.main_idx], "main", ss.main_idx, len(ss.main_pairs))
 
 
 def screen_done():
