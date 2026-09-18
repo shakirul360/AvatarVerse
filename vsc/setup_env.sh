@@ -15,9 +15,8 @@ python -m pip install --upgrade pip wheel
 echo ">> torch (CPU build)"
 pip install --index-url https://download.pytorch.org/whl/cpu torch
 
-echo ">> pipeline requirements (includes DracoPy - builds from source, needs a C++ toolchain +"
-echo "   cmake on this node; no prebuilt Linux/x86_64 wheel as of DracoPy 2.1.0. Only confirmed"
-echo "   building on macOS/arm64 so far - if this step fails here, that's the first thing to check)"
+echo ">> pipeline requirements (includes DracoPy - installs from a prebuilt manylinux wheel here,"
+echo "   no compiler needed on this node; confirmed working)"
 pip install -r "$AVATARVERSE_REPO/pipeline/requirements.txt"
 
 echo ">> chromium for playwright (into $PLAYWRIGHT_BROWSERS_PATH)"
